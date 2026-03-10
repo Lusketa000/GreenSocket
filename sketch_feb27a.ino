@@ -1,14 +1,19 @@
 
   #include <WiFi.h>
   #include <WebServer.h>
+  #include "time.h"
 
   // Replace with your network credentials
-  const char* ssid = "";
-  const char* password = "";
+  const char* ssid = "Iensen";
+  const char* password = "itonfo123";
+
+ // NTP Server details
+  const char* ntpServer = "pool.ntp.org";
+  const long  gmtOffset_sec = 0;
+  const int   daylightOffset_sec = 3600;
 
   // Assign output variables to GPIO pins
   const int output32 = 32;
-
   String output32State = "off";
 
   // Create a web server object
@@ -78,9 +83,29 @@
     // Start the web server
     server.begin();
     Serial.println("HTTP server started");
+
+    // Init and get the time
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    printLocalTime();
   }
 
   void loop() {
     // Handle incoming client requests
     server.handleClient();
   }
+
+  void printLocalTime(){
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  Serial.println("Time variables");
+  char timeHour[3];
+  strftime(timeHour,3, "%H", &timeinfo);
+  Serial.println(timeHour);
+  char timeWeekDay[10];
+  strftime(timeWeekDay,10, "%A", &timeinfo);
+  Serial.println();
+}
