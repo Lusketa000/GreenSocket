@@ -1,7 +1,7 @@
 #include "ACS712.h"
 
 
-ACS712  ACS(33, 3.3, 4095, 123.33);
+ACS712 ACS(33, 3.3, 4095, 123.33);
 
 
 int16_t ler_sensor() {
