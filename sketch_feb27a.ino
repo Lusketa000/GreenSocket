@@ -19,7 +19,7 @@ time_t endTimestamp = -1;
   const char* password = "npnt0774";
 
   // Assign output variables to GPIO pins
-  const int output32 = 32;
+  const int output32 = 8;
 
   bool outputState = false;
 
@@ -97,7 +97,7 @@ time_t endTimestamp = -1;
         Serial.print("End minute: ");
         Serial.println(end);
       }
-    server.send(200, "text/html", "Schedule updated");
+    handleRoot();
   }
 
   void setup() {
@@ -110,6 +110,7 @@ time_t endTimestamp = -1;
 
     WiFi.mode(WIFI_STA); //esp em modo de estacao
     WiFiManager wifiMan; //cria um objeto WiFiManager
+    wifiMan.setConnectTimeout(10);
     bool res = wifiMan.autoConnect("ESP32C3-Setup"); //caso nao consiga se conectar a ultima rede salva, cria a propria rede de configuração
   if(!res)
   {
@@ -156,7 +157,6 @@ time_t endTimestamp = -1;
     localtime_r(&now, &timeinfo);
 
   int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  Serial.println(now);
       if (endTimestamp < startTimestamp)
   {
     if (now_min >= startTimestamp || now_min < endTimestamp)
