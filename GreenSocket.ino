@@ -10,12 +10,22 @@
 #define TIME_CHECK_INTERVAL 60000
 #define SAVING_INTERVAL 1800000
 #define TIMEOUT 10
+//#define ROUTINE_CHECK_INTERVAL 864000000
+#define ROUTINE_CHECK_INTERVAL 2000
+#define BIN_SIZE 5
+#define MAX_VALUE 4095
+#define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
+
+#define ROWS 7
+#define COLS 12
+
 
 ACS712 ACS(33, 3.3, 4095, 123.33);
 
 unsigned long measurement_timer = 0;
 unsigned long time_check_timer = 0;
 unsigned long saving_timer = 0;
+unsigned long routine_timer = 0;
 int16_t max_reading = 0;
 int16_t readings[7][48]; // TODO: Passar para memória não volátil
 
@@ -189,6 +199,56 @@ void loop() {
     int16_t reading = read_sensor();
     max_reading = reading > max_reading ? reading : max_reading;
     measurement_timer = millis();
+  }
+
+  if(millis() - routine_timer >=  ROUTINE_CHECK_INTERVAL){
+    //logica
+    short dados[ROWS][COLS] = {
+        {20, 20, 20, 300, 400, 20, 300, 20, 20, 20, 20, 20},
+        {20, 20, 20, 20, 300, 300, 20, 20, 400, 20, 20, 20},
+        {20, 20, 20, 20, 20, 300, 300, 400, 20, 20, 0, 0},
+        {0, 0, 20, 20, 20, 20, 300, 300, 400, 20, 20, 20},
+        {20, 20, 20, 400, 20, 20, 20, 300, 300, 20, 20, 20},
+        {20, 20, 400, 20, 20, 20, 20, 300, 300, 20, 20, 20},
+        {20, 20, 20, 20, 20, 20, 300, 300, 20, 20, 20, 20}
+    };
+    int hist[NUM_BINS] = {0};
+
+    // 1. Preencher histograma
+    for (int i = 0; i < ROWS; i++) {
+        for (int j = 0; j < COLS; j++) {
+
+            int v = dados[i][j];
+
+            if (v <= 10) continue; // ignora ruído
+
+            int bin = v / BIN_SIZE;
+
+            if (bin >= NUM_BINS) continue;
+
+            hist[bin]++;
+        }
+    }
+
+    // 2. Encontrar bin mais frequente
+    int maxCount = 0;
+    int bestBin = 0;
+
+    for (int i = 0; i < NUM_BINS; i++) {
+        if (hist[i] > maxCount) {
+            maxCount = hist[i];
+            bestBin = i;
+        }
+    }
+
+    // 3. Converter bin para valor representativo
+    int standby = bestBin * BIN_SIZE;
+
+    Serial.println(standby);
+    Serial.println(bestBin * BIN_SIZE);
+    Serial.println(bestBin * BIN_SIZE + BIN_SIZE - 1);
+
+    routine_timer = millis();
   }
 
   if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
