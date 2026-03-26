@@ -9,6 +9,7 @@
 #define MEASUREMENT_INTERVAL 30000
 #define TIME_CHECK_INTERVAL 60000
 #define SAVING_INTERVAL 1800000
+#define TIMEOUT 10
 
 ACS712 ACS(33, 3.3, 4095, 123.33);
 
@@ -19,22 +20,24 @@ int16_t max_reading = 0;
 int16_t readings[7][48]; // TODO: Passar para memória não volátil
 
 int16_t read_sensor() {
+  ACS.autoMidPoint(30, 2);
   int16_t current_mA = ACS.mA_AC_sampling(60, 4);
   current_mA = current_mA * 0.4933 - 32.368;
   if (current_mA < 0) current_mA = 0;
+  Serial.println(current_mA);
   return current_mA;
 }
 
 typedef struct{
-  uint8_t H;
-  uint8_t M;
-}Tempo;
+  uint8_t hour;
+  uint8_t min;
+} ScheduleTime;
 
 time_t startTimestamp = -1;
 time_t endTimestamp = -1;
 
 // Assign output variables to GPIO pins
-const int output32 = 8;
+const int output32 = 32;
 
 bool outputState = false;
 
@@ -44,14 +47,14 @@ WebServer server(80);
 // Function to handle turning GPIO 32 on
 void handleGPIO32On() {
   outputState = true;
-  digitalWrite(output32, HIGH);
+  digitalWrite(output32, LOW);
   handleRoot();
 }
 
 // Function to handle turning GPIO 32 off
 void handleGPIO32Off() {
   outputState = false;
-  digitalWrite(output32, LOW);
+  digitalWrite(output32, HIGH);
   handleRoot();
 }
 
@@ -62,13 +65,13 @@ void handleRoot() {
   html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
   html += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 20px; margin: 10px; cursor: pointer;}";
   html += "</style></head>";
-  html += "<body><h1>ESP32 Scheduler</h1>";
+  html += "<body><h1>ESP32 ScheduleTimer</h1>";
   html += "<form action=\"/set\" method=\"GET\">";
   html += "<p>Turn ON time:</p>";
   html += "<input type=\"time\" name=\"on_time\" required>";
   html += "<p>Turn OFF time:</p>";
   html += "<input type=\"time\" name=\"off_time\" required>";
-  html += "<br><br><input type=\"submit\" class=\"button\" value=\"Set Schedule\">";
+  html += "<br><br><input type=\"submit\" class=\"button\" value=\"Set ScheduleTime\">";
   html += "</form>";
   html += "</body></html>";
 
@@ -77,17 +80,17 @@ void handleRoot() {
   html += outputState ? "LIGADO" : "DESLIGADO";  
   html += "</p>";
   if (outputState) {
-    html += "<p><a href=\"/32/on\"><button class=\"button\">ON</button></a></p>";
+    html += "<p><a href=\"/32/off\"><button class=\"button\">OFF</button></a></p>";
   } else {
-    html += "<p><a href=\"/32/off\"><button class=\"button button2\">OFF</button></a></p>";
+    html += "<p><a href=\"/32/on\"><button class=\"button button2\">ON</button></a></p>";
   }
 
   html += "</body></html>";
   server.send(200, "text/html", html);
 }
 
-Tempo on;
-Tempo off;
+ScheduleTime on;
+ScheduleTime off;
 
 
 void handleSet() {
@@ -95,14 +98,14 @@ void handleSet() {
     String str_on = server.arg("on_time");
     String str_off = server.arg("off_time");
 
-    on.H = str_on.substring(0, 2).toInt();
-    on.M = str_on.substring(3, 5).toInt();
+    on.hour = str_on.substring(0, 2).toInt();
+    on.min = str_on.substring(3, 5).toInt();
 
-    off.H = str_off.substring(0, 2).toInt();
-    off.M = str_off.substring(3, 5).toInt();
+    off.hour = str_off.substring(0, 2).toInt();
+    off.min = str_off.substring(3, 5).toInt();
 
-      int ini = on.H * 60 + on.M;
-      int end = off.H * 60 + off.M;
+      int ini = on.hour * 60 + on.min;
+      int end = off.hour * 60 + off.min;
       startTimestamp = ini;
       endTimestamp   = end;
 
@@ -121,10 +124,10 @@ void handleSet() {
     Serial.println("Failed to obtain time");
     return;
   }
-  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  Serial.println(&timeinfo, "%A, %B %d %Y %hour:%min:%S");
   Serial.println("Time variables");
   char timeHour[3];
-  strftime(timeHour,3, "%H", &timeinfo);
+  strftime(timeHour,3, "%hour", &timeinfo);
   Serial.println(timeHour);
   char timeWeekDay[10];
   strftime(timeWeekDay,10, "%A", &timeinfo);
@@ -133,18 +136,17 @@ void handleSet() {
 
 void setup() {
   ACS.suppressNoise(true);
-  ACS.autoMidPoint(30, 2);
   
   Serial.begin(115200);
 
   // Initialize the output variables as outputs
   pinMode(output32, OUTPUT);
-  // Set outputs to LOW
-  digitalWrite(output32, LOW);
+  // Set outputs to off
+  digitalWrite(output32, HIGH);
 
   WiFi.mode(WIFI_STA); //esp em modo de estacao
   WiFiManager wifiMan; //cria um objeto WiFiManager
-  wifiMan.setConnectTimeout(10);
+  wifiMan.setConnectTimeout(TIMEOUT);
   bool res = wifiMan.autoConnect("ESP32C3-Setup"); //caso nao consiga se conectar a ultima rede salva, cria a propria rede de configuração
 if(!res)
 {
@@ -162,8 +164,8 @@ else
 
   Serial.println(WiFi.localIP());
 
-  outputState = true;
-  digitalWrite(output32, HIGH);
+  //outputState = true;
+  //digitalWrite(output32, HIGH);
 }
   // Set up the web server to handle different routes
   server.on("/", handleRoot);
@@ -184,14 +186,15 @@ int timeToMinutes(String t) {
 }
 void loop() {
   if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
-    max_reading = read_sensor() > max_reading ? read_sensor() : max_reading;
+    int16_t reading = read_sensor();
+    max_reading = reading > max_reading ? reading : max_reading;
     measurement_timer = millis();
   }
 
   if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
     // TODO: Ver se é hora de ligar/desligar
-    /*
-    Handle incoming client requests
+    
+    // Handle incoming client requests
     time_t now;
     time(&now);
     struct tm timeinfo;
@@ -200,29 +203,33 @@ void loop() {
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
     bool inInterval = ((now_min - startTimestamp + 1440) % 1440) < ((endTimestamp - startTimestamp + 1440) % 1440);
 
-    if(inInterval)
-    {
-      if(outputState)
-          println("deligando");
+    if(inInterval) {
+      if(outputState) {
+          Serial.println("deligando");
           handleGPIO32Off();
+      }
     }
-    else
-    {
-      if(!outputState)
-        println("ligando");
+    else {
+      if(!outputState) {
+        Serial.println("ligando");
         handleGPIO32On();
+      }
     }
-    */
+    
     time_check_timer = millis();
   }
 
   if (millis() - saving_timer >= SAVING_INTERVAL) {
-    // readings[dia_da_semana(0 a 6)][hora_do_dia(0 a 47)] = max_reading;
+    // readings[dia_da_semana(0 a 6)][hora_do_dia(0 a 47)] = max_reading; // TODO: Fazer
+    // TODO: Passar para memória não volátil
     max_reading = 0;
     saving_timer = millis();
   }
 
+
+
   // Delay o menor intervalo (talvez não, pra conectar o wifi)
   // delay(MEASUREMENT_INTERVAL); // TODO: Deep sleep  
   server.handleClient();
+  delay(100);
 }
