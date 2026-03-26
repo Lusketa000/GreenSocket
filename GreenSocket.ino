@@ -5,11 +5,14 @@
 #include <WiFiManager.h> 
 #include <time.h>
 #include "ACS712.h"
+#include <Preferences.h>
 
 #define MEASUREMENT_INTERVAL 30000
 #define TIME_CHECK_INTERVAL 60000
 #define SAVING_INTERVAL 1800000
 #define TIMEOUT 10
+
+Preferences prefs;
 
 ACS712 ACS(33, 3.3, 4095, 123.33);
 
@@ -26,6 +29,24 @@ int16_t read_sensor() {
   if (current_mA < 0) current_mA = 0;
   Serial.println(current_mA);
   return current_mA;
+}
+
+// Função para salvar uma leitura
+void saveReading(int r, int c, int valor) {
+  int indice = (r * 7) + c; // Transforma 2D em 1D
+  char chave[6];
+  itoa(indice, chave, 10); // Converte o número do índice em string (ex: "335")
+
+  prefs.putInt(chave, valor);
+}
+
+int readReading(int r, int c) {
+  int indice = (r * 7) + c;
+  char chave[6];
+  itoa(indice, chave, 10);
+
+  // O segundo parâmetro (0) é o valor retornado caso a chave ainda não exista
+  return prefs.getInt(chave, 0);
 }
 
 typedef struct{
@@ -139,6 +160,8 @@ void setup() {
   
   Serial.begin(115200);
 
+  prefs.begin("matrix", false);
+
   // Initialize the output variables as outputs
   pinMode(output32, OUTPUT);
   // Set outputs to off
@@ -220,8 +243,15 @@ void loop() {
   }
 
   if (millis() - saving_timer >= SAVING_INTERVAL) {
-    // readings[dia_da_semana(0 a 6)][hora_do_dia(0 a 47)] = max_reading; // TODO: Fazer
-    // TODO: Passar para memória não volátil
+    // readings[dia_da_semana(0 a 6)][hora_do_dia(0 a 47)] = max_reading;
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    
+    // Passar para memória não volátil
+    saveReading(timeinfo.tm_wday, timeinfo.tm_hour * 2 + timeinfo.tm_min / 30, max_reading);
+
     max_reading = 0;
     saving_timer = millis();
   }
