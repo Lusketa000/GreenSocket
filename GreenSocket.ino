@@ -20,7 +20,6 @@ unsigned long measurement_timer = 0;
 unsigned long time_check_timer = 0;
 unsigned long saving_timer = 0;
 int16_t max_reading = 0;
-int16_t readings[7][48]; // TODO: Passar para memória não volátil
 
 int16_t read_sensor() {
   ACS.autoMidPoint(30, 2);
@@ -186,9 +185,6 @@ else
   MDNS.begin("esp");
 
   Serial.println(WiFi.localIP());
-
-  //outputState = true;
-  //digitalWrite(output32, HIGH);
 }
   // Set up the web server to handle different routes
   server.on("/", handleRoot);
@@ -215,7 +211,7 @@ void loop() {
   }
 
   if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
-    // TODO: Ver se é hora de ligar/desligar
+    // TODO: Ver se é hora de ligar/desligar automaticamente
     
     // Handle incoming client requests
     time_t now;
