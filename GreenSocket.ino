@@ -4,16 +4,16 @@
 #include <ESPmDNS.h>
 #include <WiFiManager.h> 
 #include <time.h>
-#include "ACS712.h"
 #include <Preferences.h>
+#include "ACS712.h"
 
 #define MEASUREMENT_INTERVAL 30000
 #define TIME_CHECK_INTERVAL 60000
 #define SAVING_INTERVAL 1800000
 #define TIMEOUT 10
 //#define ROUTINE_CHECK_INTERVAL 864000000
-#define ROUTINE_CHECK_INTERVAL 2000
-#define BIN_SIZE 5
+#define ROUTINE_CHECK_INTERVAL 20000
+#define BIN_SIZE 40
 #define MAX_VALUE 4095
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
 
@@ -29,7 +29,22 @@ unsigned long measurement_timer = 0;
 unsigned long time_check_timer = 0;
 unsigned long saving_timer = 0;
 unsigned long routine_timer = 0;
+
 int16_t max_reading = 0;
+
+time_t manual_on_timestamp = -1;
+time_t manual_off_timestamp = -1;
+time_t auto_on_timestamp = -1;
+time_t auto_off_timestamp = -1;
+
+enum Modes {
+  MANUAL,
+  AUTO
+};
+
+Modes mode = MANUAL;
+
+int standby = 0;
 
 int16_t read_sensor() {
   ACS.autoMidPoint(30, 2);
@@ -46,7 +61,7 @@ void saveReading(int r, int c, int valor) {
   char chave[6];
   itoa(indice, chave, 10); // Converte o número do índice em string (ex: "335")
 
-  prefs.putInt(chave, valor);
+  prefs.putShort(chave, valor);
 }
 
 int readReading(int r, int c) {
@@ -55,16 +70,8 @@ int readReading(int r, int c) {
   itoa(indice, chave, 10);
 
   // O segundo parâmetro (0) é o valor retornado caso a chave ainda não exista
-  return prefs.getInt(chave, 0);
+  return prefs.getShort(chave, 0);
 }
-
-typedef struct{
-  uint8_t hour;
-  uint8_t min;
-} ScheduleTime;
-
-time_t startTimestamp = -1;
-time_t endTimestamp = -1;
 
 // Assign output variables to GPIO pins
 const int output32 = 32;
@@ -85,6 +92,16 @@ void handleGPIO32On() {
 void handleGPIO32Off() {
   outputState = false;
   digitalWrite(output32, HIGH);
+  handleRoot();
+}
+
+void handleModeManual() {
+  mode = MANUAL;
+  handleRoot();
+}
+
+void handleModeAuto() {
+  mode = AUTO;
   handleRoot();
 }
 
@@ -114,13 +131,16 @@ void handleRoot() {
   } else {
     html += "<p><a href=\"/32/on\"><button class=\"button button2\">ON</button></a></p>";
   }
+  html += "<p>Mode: " + String(mode == MANUAL ? "MANUAL" : "AUTO") + "</p>";
+  if (mode == MANUAL) {
+    html += "<p><a href=\"/mode/auto\"><button class=\"button button2\">Switch to AUTO</button></a></p>";
+  } else {
+    html += "<p><a href=\"/mode/manual\"><button class=\"button button2\">Switch to MANUAL</button></a></p>";
+  }
 
   html += "</body></html>";
   server.send(200, "text/html", html);
 }
-
-ScheduleTime on;
-ScheduleTime off;
 
 
 void handleSet() {
@@ -128,21 +148,20 @@ void handleSet() {
     String str_on = server.arg("on_time");
     String str_off = server.arg("off_time");
 
-    on.hour = str_on.substring(0, 2).toInt();
-    on.min = str_on.substring(3, 5).toInt();
+    uint8_t on_hour = str_on.substring(0, 2).toInt();
+    uint8_t on_min = str_on.substring(3, 5).toInt();
+    uint8_t off_hour = str_off.substring(0, 2).toInt();
+    uint8_t off_min = str_off.substring(3, 5).toInt();
 
-    off.hour = str_off.substring(0, 2).toInt();
-    off.min = str_off.substring(3, 5).toInt();
+      int ini = on_hour * 60 + on_min;
+      int end = off_hour * 60 + off_min;
+      manual_on_timestamp = ini;
+      manual_off_timestamp = end;
 
-      int ini = on.hour * 60 + on.min;
-      int end = off.hour * 60 + off.min;
-      startTimestamp = ini;
-      endTimestamp   = end;
-
-      Serial.print("Start minute: ");
+      Serial.print("Manual start minute set: ");
       Serial.println(ini);
 
-      Serial.print("End minute: ");
+      Serial.print("Manual end minute set: ");
       Serial.println(end);
     }
   handleRoot();
@@ -200,6 +219,8 @@ else
   server.on("/", handleRoot);
   server.on("/32/on", handleGPIO32On);
   server.on("/32/off", handleGPIO32Off);
+  server.on("/mode/manual", handleModeManual);
+  server.on("/mode/auto", handleModeAuto);
 
   // Start the web server
   server.begin();
@@ -208,11 +229,6 @@ else
   server.on("/set", handleSet);
 }
 
-int timeToMinutes(String t) {
-  int hours = t.substring(0, 2).toInt();
-  int minutes = t.substring(3, 5).toInt();
-  return hours * 60 + minutes;
-}
 void loop() {
   if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
     int16_t reading = read_sensor();
@@ -221,30 +237,15 @@ void loop() {
   }
 
   if(millis() - routine_timer >=  ROUTINE_CHECK_INTERVAL){
-    //logica
-    short dados[ROWS][COLS] = {
-        {20, 20, 20, 300, 400, 20, 300, 20, 20, 20, 20, 20},
-        {20, 20, 20, 20, 300, 300, 20, 20, 400, 20, 20, 20},
-        {20, 20, 20, 20, 20, 300, 300, 400, 20, 20, 0, 0},
-        {0, 0, 20, 20, 20, 20, 300, 300, 400, 20, 20, 20},
-        {20, 20, 20, 400, 20, 20, 20, 300, 300, 20, 20, 20},
-        {20, 20, 400, 20, 20, 20, 20, 300, 300, 20, 20, 20},
-        {20, 20, 20, 20, 20, 20, 300, 300, 20, 20, 20, 20}
-    };
     int hist[NUM_BINS] = {0};
 
     // 1. Preencher histograma
     for (int i = 0; i < ROWS; i++) {
         for (int j = 0; j < COLS; j++) {
-
-            int v = dados[i][j];
-
+            int v = readReading(i, j);
             if (v <= 10) continue; // ignora ruído
-
             int bin = v / BIN_SIZE;
-
             if (bin >= NUM_BINS) continue;
-
             hist[bin]++;
         }
     }
@@ -261,11 +262,7 @@ void loop() {
     }
 
     // 3. Converter bin para valor representativo
-    int standby = bestBin * BIN_SIZE;
-
-    Serial.println(standby);
-    Serial.println(bestBin * BIN_SIZE);
-    Serial.println(bestBin * BIN_SIZE + BIN_SIZE - 1);
+    standby = bestBin * BIN_SIZE + BIN_SIZE - 1;
 
     routine_timer = millis();
   }
@@ -280,7 +277,13 @@ void loop() {
     localtime_r(&now, &timeinfo);
 
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-    bool inInterval = ((now_min - startTimestamp + 1440) % 1440) < ((endTimestamp - startTimestamp + 1440) % 1440);
+    bool inInterval = 0;
+    if (mode == MANUAL) {
+      inInterval = ((now_min - manual_on_timestamp + 1440) % 1440) < ((manual_off_timestamp - manual_on_timestamp + 1440) % 1440);
+    }
+    else if (mode == AUTO) {
+      inInterval = ((now_min - auto_on_timestamp + 1440) % 1440) < ((auto_off_timestamp - auto_on_timestamp + 1440) % 1440);
+    }
 
     if(inInterval) {
       if(outputState) {
