@@ -264,6 +264,8 @@ void loop() {
     // 3. Converter bin para valor representativo
     standby = bestBin * BIN_SIZE + BIN_SIZE - 1;
 
+    // TODO: Usar o valor de standby para ajustar o horário automático
+
     routine_timer = millis();
   }
 
