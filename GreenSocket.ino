@@ -45,6 +45,8 @@ enum Modes {
 Modes mode = MANUAL;
 
 int standby = 0;
+int16_t reading = 0;
+bool pending_off = false;
 
 int16_t read_sensor() {
   ACS.autoMidPoint(30, 2);
@@ -231,7 +233,7 @@ else
 
 void loop() {
   if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
-    int16_t reading = read_sensor();
+    reading = read_sensor();
     max_reading = reading > max_reading ? reading : max_reading;
     measurement_timer = millis();
   }
@@ -270,7 +272,8 @@ void loop() {
   }
 
   if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
-    // TODO: Ver se é hora de ligar/desligar automaticamente
+    // Verifica se é hora de ligar/desligar automaticamente.
+    // Se for para desligar, só desliga quando a leitura estiver <= standby.
     
     // Handle incoming client requests
     time_t now;
@@ -289,8 +292,18 @@ void loop() {
 
     if(inInterval) {
       if(outputState) {
+        if (reading > standby) {
+          if (!pending_off) {
+            Serial.println("Desligamento pendente: consumo acima do standby.");
+          }
+          pending_off = true;
+        } else {
           Serial.println("deligando");
           handleGPIO32Off();
+          pending_off = false;
+        }
+      } else {
+        pending_off = false;
       }
     }
     else {
@@ -298,6 +311,7 @@ void loop() {
         Serial.println("ligando");
         handleGPIO32On();
       }
+      pending_off = false;
     }
     
     time_check_timer = millis();
