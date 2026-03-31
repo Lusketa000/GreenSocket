@@ -18,7 +18,7 @@
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
 
 #define ROWS 7
-#define COLS 12
+#define COLS 48
 
 
 Preferences prefs;
@@ -296,7 +296,7 @@ void loop() {
       inInterval = ((now_min - manual_on_timestamp + 1440) % 1440) < ((manual_off_timestamp - manual_on_timestamp + 1440) % 1440);
     }
     else if (mode == AUTO) {
-      inInterval = ((now_min - auto_on_timestamp + 1440) % 1440) < ((auto_off_timestamp - auto_on_timestamp + 1440) % 1440);
+      inInterval = auto_schedule[now_min / 30];
     }
 
     if(inInterval) {
@@ -333,8 +333,10 @@ void loop() {
     struct tm timeinfo;
     localtime_r(&now, &timeinfo);
     
+    int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+    
     // Passar para memória não volátil
-    saveReading(timeinfo.tm_wday, timeinfo.tm_hour * 2 + timeinfo.tm_min / 30, max_reading);
+    saveReading(now_min / 30, max_reading);
 
     max_reading = 0;
     saving_timer = millis();
