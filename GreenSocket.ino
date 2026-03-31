@@ -34,7 +34,7 @@ int16_t max_reading = 0;
 
 time_t manual_on_timestamp = -1;
 time_t manual_off_timestamp = -1;
-bool auto_schedule[48] = false;
+bool auto_schedule[48] = {false};
 
 enum Modes {
   MANUAL,
@@ -336,7 +336,7 @@ void loop() {
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
     
     // Passar para memória não volátil
-    saveReading(now_min / 30, max_reading);
+    saveReading(timeinfo.tm_wday, timeinfo.tm_hour * 2 + timeinfo.tm_min / 30, max_reading);
 
     max_reading = 0;
     saving_timer = millis();
