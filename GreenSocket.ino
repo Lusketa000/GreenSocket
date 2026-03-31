@@ -34,8 +34,7 @@ int16_t max_reading = 0;
 
 time_t manual_on_timestamp = -1;
 time_t manual_off_timestamp = -1;
-time_t auto_on_timestamp = -1;
-time_t auto_off_timestamp = -1;
+bool auto_schedule[48] = false;
 
 enum Modes {
   MANUAL,
@@ -265,6 +264,16 @@ void loop() {
     standby = bestBin * BIN_SIZE + BIN_SIZE - 1;
 
     // TODO: Usar o valor de standby para ajustar o horário automático
+
+    for (int i = 0; i < COLS; i++) {
+      auto_schedule[i] = false;
+      for (int j = 0; j < ROWS; j++) {
+        int currentReading = readReading(j, i);
+        if (currentReading > standby + 50) {
+          auto_schedule[i] = true;
+        }
+      }
+    }
 
     routine_timer = millis();
   }
