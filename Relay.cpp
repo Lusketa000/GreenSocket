@@ -7,6 +7,9 @@ static bool relayState = false;
 
 void relayBegin() {
   pinMode(RELAY_PIN, OUTPUT);
+  relayState = false;
+  digitalWrite(RELAY_PIN, LOW);
+  Serial.println("[RELAY] Initialized relay output to OFF (LOW)");
 }
 
 void relayOn() {

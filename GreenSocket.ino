@@ -7,15 +7,18 @@
 #include "Relay.h"
 #include "WifiSetup.h"
 
-#define MEASUREMENT_INTERVAL 30000
-#define TIME_CHECK_INTERVAL 60000
-#define SAVING_INTERVAL 1800000
-#define ROUTINE_CHECK_INTERVAL 864000000
+#define MEASUREMENT_INTERVAL 30000 // 30 segundos
+#define TIME_CHECK_INTERVAL 60000 // 1 minuto
+#define SAVING_INTERVAL 1800000 // 30 minutos
+#define ROUTINE_CHECK_INTERVAL 86400000 // 1 dia
 #define BIN_SIZE 40
 #define MAX_VALUE 4095
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
 #define SENSOR_PIN 1
 #define WIFI_TIMEOUT_SECONDS 10
+#define MINUTES_PER_DAY 1440
+#define SLOT_MINUTES 30
+#define MIN_VALID_YEAR 120
 
 ACS712 ACS(SENSOR_PIN, 3.3, 4095, 123.33);
 
@@ -41,6 +44,25 @@ int16_t max_reading = 0;
 bool pending_off = false;
 
 WebServer server(80);
+
+static bool hasManualSchedule() {
+  return manual_on_timestamp >= 0 && manual_off_timestamp >= 0;
+}
+
+static bool isTimeValid(const tm &timeinfo) {
+  return timeinfo.tm_year >= MIN_VALID_YEAR;
+}
+
+static int minutesToSlot(int minutes) {
+  if (minutes < 0) {
+    return 0;
+  }
+  int slot = minutes / SLOT_MINUTES;
+  if (slot >= COLS) {
+    return COLS - 1;
+  }
+  return slot;
+}
 
 void handleRelayOn() {
   Serial.println("[HTTP] /relay/on requested");
@@ -68,6 +90,7 @@ void handleModeAuto() {
 
 void handleRoot() {
   Serial.println("[HTTP] Serving /");
+  bool relay_on = relayIsOn();
   String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
   html += "<link rel=\"icon\" href=\"data:,\">";
   html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
@@ -81,12 +104,11 @@ void handleRoot() {
   html += "<input type=\"time\" name=\"off_time\" required>";
   html += "<br><br><input type=\"submit\" class=\"button\" value=\"Set ScheduleTime\">";
   html += "</form>";
-  html += "</body></html>";
 
   html += "<p>Relay - State ";
-  html += relayIsOn() ? "LIGADO" : "DESLIGADO";
+  html += relay_on ? "LIGADO" : "DESLIGADO";
   html += "</p>";
-  if (relayIsOn()) {
+  if (relay_on) {
     html += "<p><a href=\"/relay/off\"><button class=\"button\">OFF</button></a></p>";
   } else {
     html += "<p><a href=\"/relay/on\"><button class=\"button button2\">ON</button></a></p>";
@@ -118,8 +140,21 @@ void handleSet() {
     int off_hour = str_off.substring(0, 2).toInt();
     int off_min = str_off.substring(3, 5).toInt();
 
+    if (on_hour < 0 || on_hour > 23 || off_hour < 0 || off_hour > 23 ||
+        on_min < 0 || on_min > 59 || off_min < 0 || off_min > 59) {
+      Serial.println("[SCHEDULE] Invalid time received; ignoring update");
+      handleRoot();
+      return;
+    }
+
     int ini = on_hour * 60 + on_min;
     int end = off_hour * 60 + off_min;
+    if (ini == end) {
+      Serial.println("[SCHEDULE] on_time equals off_time; ignoring update");
+      handleRoot();
+      return;
+    }
+
     manual_on_timestamp = ini;
     manual_off_timestamp = end;
 
@@ -136,18 +171,10 @@ void handleSet() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("[BOOT] Setup start");
-
   ACS.suppressNoise(true);
-  Serial.println("[BOOT] ACS noise suppression enabled");
-
   memoryBegin();
-
   relayBegin();
-
   wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
-
-  Serial.println("[HTTP] Registering routes");
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
   server.on("/relay/off", handleRelayOff);
@@ -160,17 +187,19 @@ void setup() {
 }
 
 void loop() {
+  // Measurement
   if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
     Serial.println("[LOOP] Measurement interval reached");
     reading = ACS.readSensor();
     max_reading = reading > max_reading ? reading : max_reading;
-    Serial.print("[LOOP] reading=");
+    Serial.print("[MEASUREMENT] reading=");
     Serial.print(reading);
     Serial.print(" max_reading=");
     Serial.println(max_reading);
     measurement_timer = millis();
   }
 
+  // Routine check
   if (millis() - routine_timer >= ROUTINE_CHECK_INTERVAL) {
     Serial.println("[LOOP] Routine interval reached; rebuilding standby and auto schedule");
     int hist[NUM_BINS] = {0};
@@ -200,7 +229,7 @@ void loop() {
     }
 
     standby = bestBin * BIN_SIZE + BIN_SIZE - 1;
-    Serial.print("[ROUTINE] Histogram bestBin=");
+    Serial.print("[TIME CHECK] Histogram bestBin=");
     Serial.print(bestBin);
     Serial.print(" count=");
     Serial.print(maxCount);
@@ -229,6 +258,7 @@ void loop() {
     routine_timer = millis();
   }
 
+  // Time check
   if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
     Serial.println("[LOOP] Time check interval reached");
 
@@ -237,13 +267,21 @@ void loop() {
     struct tm timeinfo;
     localtime_r(&now, &timeinfo);
 
+    if (!isTimeValid(timeinfo)) {
+      Serial.println("[TIME] Clock not synchronized yet; skipping time check");
+      time_check_timer = millis();
+      return;
+    }
+
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
     bool inInterval = false;
     if (mode == MANUAL) {
-      inInterval = ((now_min - manual_on_timestamp + 1440) % 1440) <
-                   ((manual_off_timestamp - manual_on_timestamp + 1440) % 1440);
+      if (hasManualSchedule()) {
+        inInterval = ((now_min - manual_on_timestamp + MINUTES_PER_DAY) % MINUTES_PER_DAY) <
+                     ((manual_off_timestamp - manual_on_timestamp + MINUTES_PER_DAY) % MINUTES_PER_DAY);
+      }
     } else if (mode == AUTO) {
-      inInterval = auto_schedule[now_min / 30];
+      inInterval = auto_schedule[minutesToSlot(now_min)];
     }
 
     Serial.print("[TIME] now=");
@@ -256,7 +294,7 @@ void loop() {
     Serial.print(" mode=");
     Serial.print(mode == MANUAL ? "MANUAL" : "AUTO");
     Serial.print(" slot=");
-    Serial.print(now_min / 30);
+    Serial.print(minutesToSlot(now_min));
     Serial.print(" inInterval=");
     Serial.print(inInterval ? "true" : "false");
     Serial.print(" outputState=");
@@ -292,12 +330,19 @@ void loop() {
     time_check_timer = millis();
   }
 
+  // Saving
   if (millis() - saving_timer >= SAVING_INTERVAL) {
     Serial.println("[LOOP] Saving interval reached");
     time_t now;
     time(&now);
     struct tm timeinfo;
     localtime_r(&now, &timeinfo);
+
+    if (!isTimeValid(timeinfo)) {
+      Serial.println("[TIME] Clock not synchronized yet; skipping save");
+      saving_timer = millis();
+      return;
+    }
 
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
     int slot = timeinfo.tm_hour * 2 + timeinfo.tm_min / 30;
@@ -321,7 +366,6 @@ void loop() {
   }
 
   handleSerialDebugCommands();
-
   server.handleClient();
   delay(100);
 }
