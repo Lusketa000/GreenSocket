@@ -304,15 +304,15 @@ void loop() {
     Serial.print(" standby=");
     Serial.println(standby);
 
-    if (inInterval) {
+    if (!inInterval) {
       if (relayIsOn()) {
         if (reading > standby && mode == AUTO) {
           if (!pending_off) {
-            Serial.println("Desligamento pendente: consumo acima do standby.");
+            Serial.println("[TIME] Desligamento pendente: consumo acima do standby.");
           }
           pending_off = true;
         } else {
-          Serial.println("desligando");
+          Serial.println("[TIME] Desligando relé");
           handleRelayOff();
           pending_off = false;
         }
@@ -321,7 +321,7 @@ void loop() {
       }
     } else {
       if (!relayIsOn()) {
-        Serial.println("ligando");
+        Serial.println("[TIME] Ligando relé");
         handleRelayOn();
       }
       pending_off = false;
