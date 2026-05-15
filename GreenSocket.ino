@@ -6,11 +6,15 @@
 #include "Memory.h"
 #include "Relay.h"
 #include "WifiSetup.h"
+#include "SimData.h"
 
 #define MEASUREMENT_INTERVAL 30000 // 30 segundos
 #define TIME_CHECK_INTERVAL 60000 // 1 minuto
 #define SAVING_INTERVAL 1800000 // 30 minutos
 #define ROUTINE_CHECK_INTERVAL 86400000 // 1 dia
+#define SIMULATION 1
+#define SIM_TIME_SCALE 9600 // 0.025s real = 30s sim (30 / 0.025 = 1200)
+#define SIM_SLOT_SECONDS 30
 #define BIN_SIZE 40
 #define MAX_VALUE 4095
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
@@ -44,6 +48,52 @@ int16_t max_reading = 0;
 bool pending_off = false;
 
 WebServer server(80);
+
+static uint64_t sim_time_ms = 0;
+static uint32_t sim_last_real_ms = 0;
+
+static void updateSimTime() {
+  uint32_t now_ms = millis();
+  uint32_t elapsed_ms = now_ms - sim_last_real_ms;
+  sim_last_real_ms = now_ms;
+  sim_time_ms += (uint64_t)elapsed_ms * SIM_TIME_SCALE;
+}
+
+static uint64_t nowMillis() {
+  if (SIMULATION) {
+    updateSimTime();
+    return sim_time_ms;
+  }
+  return millis();
+}
+
+static int16_t simulatedReading() {
+  uint64_t totalSeconds = nowMillis() / 1000ULL;
+  int dayIndex = (int)((totalSeconds / 86400ULL) % SIM_DAYS);
+  int slotIndex = (int)((totalSeconds / SIM_SLOT_SECONDS) % SIM_SLOTS_PER_DAY);
+  return SIM_DATA[dayIndex][slotIndex];
+}
+
+static void getTimeInfo(struct tm *timeinfo) {
+  if (!SIMULATION) {
+    time_t now;
+    time(&now);
+    localtime_r(&now, timeinfo);
+    return;
+  }
+
+  uint64_t totalSeconds = nowMillis() / 1000ULL;
+  int dayIndex = (int)((totalSeconds / 86400ULL) % SIM_DAYS);
+  int secondsToday = (int)(totalSeconds % 86400ULL);
+
+  timeinfo->tm_year = 124; // 2024
+  timeinfo->tm_mon = 0;
+  timeinfo->tm_mday = 1 + dayIndex;
+  timeinfo->tm_wday = dayIndex % 7;
+  timeinfo->tm_hour = secondsToday / 3600;
+  timeinfo->tm_min = (secondsToday % 3600) / 60;
+  timeinfo->tm_sec = secondsToday % 60;
+}
 
 static bool hasManualSchedule() {
   return manual_on_timestamp >= 0 && manual_off_timestamp >= 0;
@@ -174,34 +224,35 @@ void setup() {
   ACS.suppressNoise(true);
   memoryBegin();
   relayBegin();
-  wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
-  server.on("/", handleRoot);
-  server.on("/relay/on", handleRelayOn);
-  server.on("/relay/off", handleRelayOff);
-  server.on("/mode/manual", handleModeManual);
-  server.on("/mode/auto", handleModeAuto);
-  server.on("/set", handleSet);
-  server.begin();
-  Serial.println("HTTP server started");
+  if (!SIMULATION) {
+    wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
+    server.on("/", handleRoot);
+    server.on("/relay/on", handleRelayOn);
+    server.on("/relay/off", handleRelayOff);
+    server.on("/mode/manual", handleModeManual);
+    server.on("/mode/auto", handleModeAuto);
+    server.on("/set", handleSet);
+    server.begin();
+    Serial.println("HTTP server started");
+  }
   Serial.println("[BOOT] Setup complete");
+
+  if (SIMULATION) {
+    sim_last_real_ms = millis();
+    Serial.println("[SIM] Simulation mode enabled");
+  }
 }
 
 void loop() {
   // Measurement
-  if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
-    Serial.println("[LOOP] Measurement interval reached");
-    reading = ACS.readSensor();
+  if (nowMillis() - measurement_timer >= MEASUREMENT_INTERVAL) {
+    reading = SIMULATION ? simulatedReading() : ACS.readSensor();
     max_reading = reading > max_reading ? reading : max_reading;
-    Serial.print("[MEASUREMENT] reading=");
-    Serial.print(reading);
-    Serial.print(" max_reading=");
-    Serial.println(max_reading);
-    measurement_timer = millis();
+    measurement_timer = nowMillis();
   }
 
   // Routine check
-  if (millis() - routine_timer >= ROUTINE_CHECK_INTERVAL) {
-    Serial.println("[LOOP] Routine interval reached; rebuilding standby and auto schedule");
+  if (nowMillis() - routine_timer >= ROUTINE_CHECK_INTERVAL) {
     int hist[NUM_BINS] = {0};
 
     for (int i = 0; i < ROWS; i++) {
@@ -229,11 +280,7 @@ void loop() {
     }
 
     standby = bestBin * BIN_SIZE + BIN_SIZE - 1;
-    Serial.print("[TIME CHECK] Histogram bestBin=");
-    Serial.print(bestBin);
-    Serial.print(" count=");
-    Serial.print(maxCount);
-    Serial.print(" standby=");
+    Serial.print("[ROUTINE] standby=");
     Serial.println(standby);
 
     int activeSlots = 0;
@@ -254,27 +301,32 @@ void loop() {
     Serial.print(activeSlots);
     Serial.print("/");
     Serial.println(COLS);
+    Serial.print("[ROUTINE] auto_schedule=");
+    for (int i = 0; i < COLS; i++) {
+      Serial.print(auto_schedule[i] ? '1' : '0');
+      if (i < COLS - 1) {
+        Serial.print(',');
+      }
+    }
+    Serial.println();
 
-    routine_timer = millis();
+    routine_timer = nowMillis();
   }
 
   // Time check
-  if (millis() - time_check_timer >= TIME_CHECK_INTERVAL) {
-    Serial.println("[LOOP] Time check interval reached");
-
-    time_t now;
-    time(&now);
+  if (nowMillis() - time_check_timer >= TIME_CHECK_INTERVAL) {
     struct tm timeinfo;
-    localtime_r(&now, &timeinfo);
+    getTimeInfo(&timeinfo);
 
     if (!isTimeValid(timeinfo)) {
       Serial.println("[TIME] Clock not synchronized yet; skipping time check");
-      time_check_timer = millis();
+      time_check_timer = nowMillis();
       return;
     }
 
     int now_min = timeinfo.tm_hour * 60 + timeinfo.tm_min;
     bool inInterval = false;
+    static bool lastInInterval = false;
     if (mode == MANUAL) {
       if (hasManualSchedule()) {
         inInterval = ((now_min - manual_on_timestamp + MINUTES_PER_DAY) % MINUTES_PER_DAY) <
@@ -284,25 +336,18 @@ void loop() {
       inInterval = auto_schedule[minutesToSlot(now_min)];
     }
 
-    Serial.print("[TIME] now=");
-    Serial.print(timeinfo.tm_hour);
-    Serial.print(":");
-    if (timeinfo.tm_min < 10) {
-      Serial.print("0");
+    if (inInterval != lastInInterval) {
+      Serial.print("[SCHEDULE] ");
+      Serial.print(inInterval ? "Ligando" : "Desligando");
+      Serial.print(" em ");
+      Serial.print(timeinfo.tm_hour);
+      Serial.print(":");
+      if (timeinfo.tm_min < 10) {
+        Serial.print("0");
+      }
+      Serial.println(timeinfo.tm_min);
+      lastInInterval = inInterval;
     }
-    Serial.print(timeinfo.tm_min);
-    Serial.print(" mode=");
-    Serial.print(mode == MANUAL ? "MANUAL" : "AUTO");
-    Serial.print(" slot=");
-    Serial.print(minutesToSlot(now_min));
-    Serial.print(" inInterval=");
-    Serial.print(inInterval ? "true" : "false");
-    Serial.print(" outputState=");
-    Serial.print(relayIsOn() ? "ON" : "OFF");
-    Serial.print(" reading=");
-    Serial.print(reading);
-    Serial.print(" standby=");
-    Serial.println(standby);
 
     if (!inInterval) {
       if (relayIsOn()) {
@@ -327,20 +372,18 @@ void loop() {
       pending_off = false;
     }
 
-    time_check_timer = millis();
+    time_check_timer = nowMillis();
   }
 
   // Saving
-  if (millis() - saving_timer >= SAVING_INTERVAL) {
+  if (nowMillis() - saving_timer >= SAVING_INTERVAL) {
     Serial.println("[LOOP] Saving interval reached");
-    time_t now;
-    time(&now);
     struct tm timeinfo;
-    localtime_r(&now, &timeinfo);
+    getTimeInfo(&timeinfo);
 
     if (!isTimeValid(timeinfo)) {
       Serial.println("[TIME] Clock not synchronized yet; skipping save");
-      saving_timer = millis();
+      saving_timer = nowMillis();
       return;
     }
 
@@ -362,10 +405,12 @@ void loop() {
     saveReading(timeinfo.tm_wday, slot, max_reading);
     max_reading = 0;
     Serial.println("[SAVE] max_reading reset to 0");
-    saving_timer = millis();
+    saving_timer = nowMillis();
   }
 
   handleSerialDebugCommands();
-  server.handleClient();
+  if (!SIMULATION) {
+    server.handleClient();
+  }
   delay(100);
 }
