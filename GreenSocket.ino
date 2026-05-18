@@ -6,6 +6,7 @@
 #include "Memory.h"
 #include "Relay.h"
 #include "WifiSetup.h"
+#include "ESPNOW_protocol.h"
 
 #define MEASUREMENT_INTERVAL 30000 // 30 segundos
 #define TIME_CHECK_INTERVAL 60000 // 1 minuto
@@ -19,6 +20,8 @@
 #define MINUTES_PER_DAY 1440
 #define SLOT_MINUTES 30
 #define MIN_VALID_YEAR 120
+
+bool wifi_connected = false;
 
 ACS712 ACS(SENSOR_PIN, 3.3, 4095, 123.33);
 
@@ -169,12 +172,19 @@ void handleSet() {
 }
 
 void setup() {
+  // ESP CONFIGURATION //
   Serial.begin(115200);
   delay(200);
   ACS.suppressNoise(true);
   memoryBegin();
   relayBegin();
-  wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
+
+  // WI-FI CONFIGURATION //
+  String apName = generateAPName();
+  wifiSetupBegin(apName.c_str(), WIFI_TIMEOUT_SECONDS);
+  wifi_connected = true;
+  uint8_t wifi_channel = WiFi.channel();
+
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
   server.on("/relay/off", handleRelayOff);
@@ -183,6 +193,39 @@ void setup() {
   server.on("/set", handleSet);
   server.begin();
   Serial.println("HTTP server started");
+
+  //WiFi.disconnect(false, false);
+  //wifi_connected = false;
+  // ESP-NOW CONFIGURATION
+  randomSeed(micros());
+	next_hello = random(500, 3000);
+
+  esp_wifi_set_promiscuous(true);
+
+  if (wifi_channel != 0) {
+    if (esp_wifi_set_channel(wifi_channel, WIFI_SECOND_CHAN_NONE) != ESP_OK)
+      return;
+  }
+  else {
+	  if (esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE) != ESP_OK)
+      return;
+  }
+
+	esp_wifi_set_promiscuous(false);
+
+  WiFi.macAddress(this_mac);
+  Serial.print("[BOOT] My MAC is: ");
+	print_mac(this_mac);
+
+  if (esp_now_init() != ESP_OK) {
+		Serial.println("erro ao iniciar ESP_NOW");
+		return;
+	}
+
+  add_peer_espnow((uint8_t *)BROADCAST);
+	esp_now_register_recv_cb(onReceive);
+	memset(peer_list, 0, sizeof(peer_list));
+
   Serial.println("[BOOT] Setup complete");
 }
 
@@ -365,7 +408,62 @@ void loop() {
     saving_timer = millis();
   }
 
+  // Envia HELLO broadcast
+  if ((millis() - last_hello > MSG_INTERVAL + next_hello)) {
+		last_hello = millis();
+		next_hello =random(500, 3000);
+
+		if (this_state == SEARCHING) {
+			send_message((uint8_t *)BROADCAST, MSG_HELLO);
+			Serial.println("HELLO enviado via broadcast\n");
+		}
+	}
+
+  // Timeout peers
+	for (int id = 0; id < MAX_PEERS; id++) {
+		if (peer_list[id].last_seen != 0) {
+			if (millis() - peer_list[id].last_seen > TIMEOUT) {
+				Serial.printf("CHECK id=%d millis=%lu last_seen=%lu diff=%lu\n",
+											id,
+											millis(),
+											peer_list[id].last_seen,
+											millis() - peer_list[id].last_seen);
+				remove_peer(id);
+			}
+		}
+	}
+
+  // Debug mestre
+	static unsigned long lastPrint = 0;
+	if (millis() - lastPrint > 5000 + RAND) {
+		RAND = random(500, 3000);
+		lastPrint = millis();
+
+		Serial.print("Sou mestre?\n");
+		Serial.println(is_master() ? "SIM\n\n" : "NAO\n\n");
+	}
+
+  if (!is_master()) {
+    if (wifi_connected) {
+      WiFi.setAutoReconnect(false);
+      WiFi.disconnect(false, false);
+      wifi_connected = false;
+    }
+    //enviar para o mestre os dados medidos desse esp
+  }
+  else {
+    if (!wifi_connected) {
+      WiFi.setAutoReconnect(true);
+      WiFi.begin();
+      delay (10);
+      if (WiFi.status() == WL_CONNECTED) {
+        wifi_connected = true;
+      }
+    }
+    //enviar um pacote para o webserver com todos os dados medidos pelos outros esps e esse
+  }
+
   handleSerialDebugCommands();
-  server.handleClient();
-  delay(100);
+  if (wifi_connected) server.handleClient();
+  delay(10);
 }

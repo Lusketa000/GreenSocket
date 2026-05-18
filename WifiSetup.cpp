@@ -5,9 +5,24 @@
 #include <time.h>
 #include "WifiSetup.h"
 
+String generateAPName() {
+    uint64_t chipid = ESP.getEfuseMac();
+
+    char name[32];
+
+    snprintf(
+        name,
+        sizeof(name),
+        "ESP32C3-Setup-%04X",
+        (uint16_t)(chipid & 0xFFFF)
+    );
+
+    return String(name);
+}
+
 bool wifiSetupBegin(const char* apName, int timeoutSeconds) {
-  WiFi.mode(WIFI_STA);
-  Serial.println("[WIFI] Mode set to WIFI_STA");
+  WiFi.mode(WIFI_AP_STA);
+  Serial.println("[WIFI] Mode set to WIFI_AP_STA");
 
   WiFiManager wifiMan;
   wifiMan.setConnectTimeout(timeoutSeconds);
