@@ -15,7 +15,6 @@
 #define MAX_VALUE 4095
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
 #define SENSOR_PIN 1
-#define WIFI_TIMEOUT_SECONDS 10
 #define MINUTES_PER_DAY 1440
 #define SLOT_MINUTES 30
 #define MIN_VALID_YEAR 120
@@ -95,8 +94,41 @@ void handleRoot() {
   html += "<link rel=\"icon\" href=\"data:,\">";
   html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
   html += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 20px; margin: 10px; cursor: pointer;}";
+  html += ".section { border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px; }";
   html += "</style></head>";
   html += "<body><h1>ESP32 ScheduleTimer</h1>";
+  
+  // Current time display
+  time_t now;
+  time(&now);
+  struct tm timeinfo;
+  localtime_r(&now, &timeinfo);
+  html += "<div class=\"section\">";
+  html += "<p><strong>Current Time: ";
+  html += String(timeinfo.tm_hour) + ":";
+  if (timeinfo.tm_min < 10) html += "0";
+  html += String(timeinfo.tm_min) + ":";
+  if (timeinfo.tm_sec < 10) html += "0";
+  html += String(timeinfo.tm_sec) + "</strong></p>";
+  html += "</div>";
+  
+  // Set system time
+  html += "<div class=\"section\">";
+  html += "<h3>Set System Time</h3>";
+  html += "<form action=\"/setTime\" method=\"GET\">";
+  html += "<p>Hour (0-23):</p>";
+  html += "<input type=\"number\" name=\"hour\" min=\"0\" max=\"23\" value=\"" + String(timeinfo.tm_hour) + "\" required>";
+  html += "<p>Minute (0-59):</p>";
+  html += "<input type=\"number\" name=\"minute\" min=\"0\" max=\"59\" value=\"" + String(timeinfo.tm_min) + "\" required>";
+  html += "<p>Second (0-59):</p>";
+  html += "<input type=\"number\" name=\"second\" min=\"0\" max=\"59\" value=\"" + String(timeinfo.tm_sec) + "\" required>";
+  html += "<br><br><input type=\"submit\" class=\"button\" value=\"Update Time\">";
+  html += "</form>";
+  html += "</div>";
+  
+  // Schedule settings
+  html += "<div class=\"section\">";
+  html += "<h3>Set Schedule</h3>";
   html += "<form action=\"/set\" method=\"GET\">";
   html += "<p>Turn ON time:</p>";
   html += "<input type=\"time\" name=\"on_time\" required>";
@@ -104,24 +136,72 @@ void handleRoot() {
   html += "<input type=\"time\" name=\"off_time\" required>";
   html += "<br><br><input type=\"submit\" class=\"button\" value=\"Set ScheduleTime\">";
   html += "</form>";
+  html += "</div>";
 
-  html += "<p>Relay - State ";
+  // Relay control
+  html += "<div class=\"section\">";
+  html += "<p><strong>Relay - State ";
   html += relay_on ? "LIGADO" : "DESLIGADO";
-  html += "</p>";
+  html += "</strong></p>";
   if (relay_on) {
     html += "<p><a href=\"/relay/off\"><button class=\"button\">OFF</button></a></p>";
   } else {
     html += "<p><a href=\"/relay/on\"><button class=\"button button2\">ON</button></a></p>";
   }
-  html += "<p>Mode: " + String(mode == MANUAL ? "MANUAL" : "AUTO") + "</p>";
+  html += "</div>";
+  
+  // Mode control
+  html += "<div class=\"section\">";
+  html += "<p><strong>Mode: " + String(mode == MANUAL ? "MANUAL" : "AUTO") + "</strong></p>";
   if (mode == MANUAL) {
     html += "<p><a href=\"/mode/auto\"><button class=\"button button2\">Switch to AUTO</button></a></p>";
   } else {
     html += "<p><a href=\"/mode/manual\"><button class=\"button button2\">Switch to MANUAL</button></a></p>";
   }
+  html += "</div>";
 
   html += "</body></html>";
   server.send(200, "text/html", html);
+}
+
+void handleSetTime() {
+  Serial.println("[HTTP] /setTime requested");
+  if (server.hasArg("hour") && server.hasArg("minute") && server.hasArg("second")) {
+    int hour = server.arg("hour").toInt();
+    int minute = server.arg("minute").toInt();
+    int second = server.arg("second").toInt();
+    
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+      Serial.println("[TIME] Invalid time received; ignoring update");
+      handleRoot();
+      return;
+    }
+    
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    
+    timeinfo.tm_hour = hour;
+    timeinfo.tm_min = minute;
+    timeinfo.tm_sec = second;
+    
+    time_t new_time = mktime(&timeinfo);
+    struct timeval tv = { .tv_sec = new_time, .tv_usec = 0 };
+    settimeofday(&tv, nullptr);
+    
+    Serial.print("[TIME] System time updated to: ");
+    Serial.print(hour);
+    Serial.print(":");
+    if (minute < 10) Serial.print("0");
+    Serial.print(minute);
+    Serial.print(":");
+    if (second < 10) Serial.print("0");
+    Serial.println(second);
+  } else {
+    Serial.println("[TIME] Missing hour/minute/second args");
+  }
+  handleRoot();
 }
 
 void handleSet() {
@@ -174,13 +254,14 @@ void setup() {
   ACS.suppressNoise(true);
   memoryBegin();
   relayBegin();
-  wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
+  wifiSetupBegin("ESP32C3-Setup");
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
   server.on("/relay/off", handleRelayOff);
   server.on("/mode/manual", handleModeManual);
   server.on("/mode/auto", handleModeAuto);
   server.on("/set", handleSet);
+  server.on("/setTime", handleSetTime);
   server.begin();
   Serial.println("HTTP server started");
   Serial.println("[BOOT] Setup complete");
