@@ -285,3 +285,39 @@ bool is_master() {
 	}
 	return true;
 }
+
+void restartEspNow() {
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("[ESP-NOW] Falha ao reiniciar ESP_NOW");
+    return;
+  }
+  
+	delay(80);
+  
+  Serial.println("[ESP-NOW] Reiniciado com sucesso");
+
+  // Readiciona o broadcast
+  add_peer_espnow((uint8_t *)BROADCAST);
+	Serial.println("[ESP-NOW] Broadcast readicionado");
+  
+	int count = 0;
+  // Readiciona todos os peers da lista
+  for (int i = 0; i < MAX_PEERS; i++) {
+		print_mac(peer_list[i].mac);
+		Serial.println(peer_list[i].state);
+		Serial.println(peer_list[i].last_seen);
+    if (peer_list[i].state == CONNECTED) {
+      bool success = add_peer_espnow(peer_list[i].mac);
+      
+      if (success) {
+        Serial.printf("[ESP-NOW] Peer %d readicionado com sucesso\tmac:", i);
+				update_peer(peer_list[i].mac, i);
+				count++;
+      } else {
+        Serial.printf("[ESP-NOW] Falha ao readicionar peer %d\tmac:", i);
+      }
+			print_mac(peer_list[i].mac);
+    }
+  }
+	Serial.printf("[ESP-NOW] Total de peers readicionados: %d\n", count);
+}

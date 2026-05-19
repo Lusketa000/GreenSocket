@@ -184,6 +184,9 @@ void setup() {
   wifiSetupBegin(apName.c_str(), WIFI_TIMEOUT_SECONDS);
   wifi_connected = true;
   uint8_t wifi_channel = WiFi.channel();
+  if (wifi_channel == 0) {
+  wifi_channel = CHANNEL;  // seu canal fixo
+}
 
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
@@ -201,17 +204,16 @@ void setup() {
 	next_hello = random(500, 3000);
 
   esp_wifi_set_promiscuous(true);
+esp_err_t err = esp_wifi_set_channel(wifi_channel, WIFI_SECOND_CHAN_NONE);
+esp_wifi_set_promiscuous(false);
 
-  if (wifi_channel != 0) {
-    if (esp_wifi_set_channel(wifi_channel, WIFI_SECOND_CHAN_NONE) != ESP_OK)
-      return;
-  }
-  else {
-	  if (esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE) != ESP_OK)
-      return;
-  }
-
-	esp_wifi_set_promiscuous(false);
+if (err != ESP_OK) {
+  Serial.printf("[ESP-NOW] ⚠️ Falha ao setar canal (erro %d). Usando canal atual do WiFi.\n", err);
+  wifi_channel = WiFi.channel();  // pega o que o roteador deu
+  Serial.printf("[ESP-NOW] Canal atual = %d\n", wifi_channel);
+} else {
+  Serial.printf("[ESP-NOW] Canal %d setado com sucesso\n", wifi_channel);
+}
 
   WiFi.macAddress(this_mac);
   Serial.print("[BOOT] My MAC is: ");
@@ -221,6 +223,9 @@ void setup() {
 		Serial.println("erro ao iniciar ESP_NOW");
 		return;
 	}
+  else {
+    Serial.println("ESP_NOW setup complete");
+  }
 
   add_peer_espnow((uint8_t *)BROADCAST);
 	esp_now_register_recv_cb(onReceive);
@@ -419,6 +424,24 @@ void loop() {
 		}
 	}
 
+  //ENVIO DE ALIVE
+	if (millis() - last_alive > 6000) {
+    last_alive = millis();
+
+    bool enviado = false;
+    for (int id = 0; id < MAX_PEERS; id++) {
+        if (peer_list[id].state == CONNECTED) {
+            send_message(peer_list[id].mac, MSG_ALIVE);
+            Serial.print("ALIVE enviado para: ");
+            print_mac(peer_list[id].mac);
+            enviado = true;
+        }
+    }
+    if (!enviado) {
+        Serial.println("Nenhum peer CONNECTED para enviar ALIVE");
+    }
+  }
+
   // Timeout peers
 	for (int id = 0; id < MAX_PEERS; id++) {
 		if (peer_list[id].last_seen != 0) {
@@ -443,25 +466,37 @@ void loop() {
 		Serial.println(is_master() ? "SIM\n\n" : "NAO\n\n");
 	}
 
+/*
   if (!is_master()) {
     if (wifi_connected) {
+      Serial.println("Desconectando do WiFi");
+      esp_now_deinit();
       WiFi.setAutoReconnect(false);
       WiFi.disconnect(false, false);
       wifi_connected = false;
+      delay(100);
+      restartEspNow();
     }
     //enviar para o mestre os dados medidos desse esp
   }
   else {
     if (!wifi_connected) {
+      Serial.println("Conectando ao WiFi");
       WiFi.setAutoReconnect(true);
+      WiFi.mode(WIFI_AP_STA);
       WiFi.begin();
-      delay (10);
-      if (WiFi.status() == WL_CONNECTED) {
-        wifi_connected = true;
+      unsigned long delay = millis();
+      while(WiFi.status() != WL_CONNECTED && millis() - delay < 10000) {
+        if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("Conectado");
+          wifi_connected = true;
+        }
       }
+      restartEspNow();
     }
     //enviar um pacote para o webserver com todos os dados medidos pelos outros esps e esse
   }
+*/
 
   handleSerialDebugCommands();
   if (wifi_connected) server.handleClient();
