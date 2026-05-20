@@ -26,6 +26,9 @@ unsigned long last_hello = 0;
 //TEMPO RANDOM PARA PROXIMO HELLO
 unsigned long next_hello = 0;
 
+//TRUE SE O ESP ATUAL FOR MESTRE
+bool master = false;
+
 //RETORNA TRUE SE MAC A == MAC B, CASO CONTRARIO RETORNA FALSE
 bool mac_equals(uint8_t *mac_a, uint8_t *mac_b) {
 	return memcmp(mac_a, mac_b, 6) == 0;
@@ -58,6 +61,7 @@ int add_peer(uint8_t *mac) {
 
 			Serial.print("[DEBUG_add_peer]: PEER CRIADO COM SUCESSO ->\t");
 			print_mac(mac);
+
 			return id;
 		}
 	}
@@ -91,6 +95,8 @@ void  remove_peer(int id) {
 
 	esp_now_del_peer(peer_list[id].mac);
 	memset(&peer_list[id], 0, sizeof(peer));
+
+	define_master();
 
 	if (this_state == PAIRING)
 		this_state = SEARCHING;
@@ -245,6 +251,7 @@ void onReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
 				//ESTABELECE CONEXAO
 				peer_list[id].state = CONNECTED;
+				master = define_master();
 				Serial.println("[DEBUG_OnReceive]: RESPONDENDO COM ACK CONNECTED");
 				if (!send_message((uint8_t *)mac, MSG_ACK_CONNECTED))
 				{
@@ -262,6 +269,7 @@ void onReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 				print_mac((uint8_t *)mac);
 
 				peer_list[id].state = CONNECTED;
+				master = define_master();
 				this_state = SEARCHING;
 				return;
 			}
@@ -275,15 +283,28 @@ void onReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 }
 
 //RETORNA TRUE SE ESP FOR MESTRE, SE NAO, RETORNA FALSE
-bool is_master() {
+bool define_master() {
+	uint8_t temp_mac[6];
+	memcpy(temp_mac, this_mac, 6);
+	int master_index = -1;
+
 	for (int i = 0; i < MAX_PEERS; i++) {
-		if (peer_list[i].last_seen != 0) {
-			if (memcmp(peer_list[i].mac, this_mac, 6) < 0) {
-				return false;
+		peer_list[i].master = false;
+
+		if (peer_list[i].state == CONNECTED) {
+			if (memcmp(peer_list[i].mac, temp_mac, 6) < 0) {
+				memcpy(temp_mac, peer_list[i].mac, 6);
+				master_index = i;
 			}
 		}
 	}
-	return true;
+
+	if (master_index == -1) {
+		return true;
+	}
+	
+	peer_list[master_index].master = true;
+	return false;
 }
 
 void restartEspNow() {
@@ -293,7 +314,7 @@ void restartEspNow() {
   }
   
 	delay(80);
-  
+  esp_now_register_recv_cb(onReceive);
   Serial.println("[ESP-NOW] Reiniciado com sucesso");
 
   // Readiciona o broadcast

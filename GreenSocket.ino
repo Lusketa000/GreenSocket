@@ -7,6 +7,8 @@
 #include "Relay.h"
 #include "WifiSetup.h"
 #include "ESPNOW_protocol.h"
+#include "Secrets.h"
+#include <PubSubClient.h>
 
 #define MEASUREMENT_INTERVAL 30000 // 30 segundos
 #define TIME_CHECK_INTERVAL 60000 // 1 minuto
@@ -29,6 +31,8 @@ unsigned long measurement_timer = 0;
 unsigned long time_check_timer = 0;
 unsigned long saving_timer = 0;
 unsigned long routine_timer = 0;
+WiFiClient espClient;
+PubSubClient mqtt(espClient);
 
 time_t manual_on_timestamp = -1;
 time_t manual_off_timestamp = -1;
@@ -181,12 +185,11 @@ void setup() {
 
   // WI-FI CONFIGURATION //
   String apName = generateAPName();
-  wifiSetupBegin(apName.c_str(), WIFI_TIMEOUT_SECONDS);
-  wifi_connected = true;
+  wifi_connected = wifiSetupBegin(apName.c_str(), WIFI_TIMEOUT_SECONDS);
   uint8_t wifi_channel = WiFi.channel();
   if (wifi_channel == 0) {
-  wifi_channel = CHANNEL;  // seu canal fixo
-}
+    wifi_channel = CHANNEL;  // seu canal fixo
+  }
 
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
@@ -204,34 +207,51 @@ void setup() {
 	next_hello = random(500, 3000);
 
   esp_wifi_set_promiscuous(true);
-esp_err_t err = esp_wifi_set_channel(wifi_channel, WIFI_SECOND_CHAN_NONE);
-esp_wifi_set_promiscuous(false);
+  esp_err_t err = esp_wifi_set_channel(wifi_channel, WIFI_SECOND_CHAN_NONE);
+  delay(200);
+  esp_wifi_set_promiscuous(false);
 
-if (err != ESP_OK) {
-  Serial.printf("[ESP-NOW] ⚠️ Falha ao setar canal (erro %d). Usando canal atual do WiFi.\n", err);
-  wifi_channel = WiFi.channel();  // pega o que o roteador deu
-  Serial.printf("[ESP-NOW] Canal atual = %d\n", wifi_channel);
-} else {
-  Serial.printf("[ESP-NOW] Canal %d setado com sucesso\n", wifi_channel);
-}
-
-  WiFi.macAddress(this_mac);
-  Serial.print("[BOOT] My MAC is: ");
-	print_mac(this_mac);
-
-  if (esp_now_init() != ESP_OK) {
-		Serial.println("erro ao iniciar ESP_NOW");
-		return;
-	}
-  else {
-    Serial.println("ESP_NOW setup complete");
+  if (err != ESP_OK) {
+    Serial.printf("[ESP-NOW] ⚠️ Falha ao setar canal (erro %d). Usando canal atual do WiFi.\n", err);
+    wifi_channel = WiFi.channel();  // pega o que o roteador deu
+    Serial.printf("[ESP-NOW] Canal atual = %d\n", wifi_channel);
+  } else {
+    Serial.printf("[ESP-NOW] Canal %d setado com sucesso\n", wifi_channel);
   }
+    
+    //mqtt setup
+    if (wifi_connected) {
+      mqtt.setServer("io.adafruit.com", 1883);
+      Serial.println("[MQTT] Connecting...");
+       if (mqtt.connect(
+        "ESP32C3_MASTER",
+        ADAFRUIT_USER,
+        ADAFRUIT_KEY)) {
+          Serial.println("[MQTT] Connected");
+        }
+        else {
+          Serial.print("[MQTT] Failed, rc=");
+          Serial.println(mqtt.state());
+        }
+    }
 
-  add_peer_espnow((uint8_t *)BROADCAST);
-	esp_now_register_recv_cb(onReceive);
-	memset(peer_list, 0, sizeof(peer_list));
+    WiFi.macAddress(this_mac);
+    Serial.print("[BOOT] My MAC is: ");
+    print_mac(this_mac);
 
-  Serial.println("[BOOT] Setup complete");
+    if (esp_now_init() != ESP_OK) {
+      Serial.println("erro ao iniciar ESP_NOW");
+      return;
+    }
+    else {
+      Serial.println("ESP_NOW setup complete");
+    }
+
+    add_peer_espnow((uint8_t *)BROADCAST);
+    esp_now_register_recv_cb(onReceive);
+    memset(peer_list, 0, sizeof(peer_list));
+
+    Serial.println("[BOOT] Setup complete");
 }
 
 void loop() {
@@ -245,6 +265,44 @@ void loop() {
     Serial.print(" max_reading=");
     Serial.println(max_reading);
     measurement_timer = millis();
+
+     if(master && wifi_connected && mqtt.connected()) {
+
+      //int indice = (timeinfo.tm_wday * COLS) + slot;
+
+      String payload = "{";
+      //payload += "\"row\":";
+      //payload += String(timeinfo.tm_wday);
+      //payload += ",";
+
+      //payload += "\"col\":";
+      //payload += String(slot);
+      //payload += ",";
+
+      //payload += "\"index\":";
+      //payload += String(indice);
+      //payload += ",";
+
+      payload += "\"value\":";
+      payload += String(reading);
+
+      payload += "}";
+
+      String topic =
+        String(ADAFRUIT_USER) +
+        "/feeds/energy";
+
+      mqtt.publish(
+        topic.c_str(),
+        payload.c_str()
+      );
+      Serial.println("[MQTT] Reading published");
+    }
+    //else if (!master)
+    //{
+      //envia ao esp
+    //}
+
   }
 
   // Routine check
@@ -408,6 +466,46 @@ void loop() {
     Serial.println(max_reading);
 
     saveReading(timeinfo.tm_wday, slot, max_reading);
+
+    /*
+    if(master && wifi_connected && mqtt.connected()) {
+
+      int indice = (timeinfo.tm_wday * COLS) + slot;
+
+      String payload = "{";
+      payload += "\"row\":";
+      payload += String(timeinfo.tm_wday);
+      payload += ",";
+
+      payload += "\"col\":";
+      payload += String(slot);
+      payload += ",";
+
+      payload += "\"index\":";
+      payload += String(indice);
+      payload += ",";
+
+      payload += "\"value\":";
+      payload += String(max_reading);
+
+      payload += "}";
+
+      String topic =
+        String(ADAFRUIT_USER) +
+        "/feeds/energy";
+
+      mqtt.publish(
+        topic.c_str(),
+        payload.c_str()
+      );
+      Serial.println("[MQTT] Reading published");
+    }
+    else if (!master)
+    {
+      //envia ao esp
+    }
+    */
+
     max_reading = 0;
     Serial.println("[SAVE] max_reading reset to 0");
     saving_timer = millis();
@@ -456,18 +554,16 @@ void loop() {
 		}
 	}
 
-  // Debug mestre
+  // Debug mestre e definição de mestre
 	static unsigned long lastPrint = 0;
 	if (millis() - lastPrint > 5000 + RAND) {
 		RAND = random(500, 3000);
 		lastPrint = millis();
 
 		Serial.print("Sou mestre?\n");
-		Serial.println(is_master() ? "SIM\n\n" : "NAO\n\n");
-	}
-
-/*
-  if (!is_master()) {
+    master = define_master();
+		Serial.println(master ? "SIM\n\n" : "NAO\n\n");
+  if (!master) {
     if (wifi_connected) {
       Serial.println("Desconectando do WiFi");
       esp_now_deinit();
@@ -486,7 +582,7 @@ void loop() {
       WiFi.mode(WIFI_AP_STA);
       WiFi.begin();
       unsigned long delay = millis();
-      while(WiFi.status() != WL_CONNECTED && millis() - delay < 10000) {
+      while(WiFi.status() != WL_CONNECTED/* && millis() - delay < 10000*/) {
         if (WiFi.status() == WL_CONNECTED) {
           Serial.println("Conectado");
           wifi_connected = true;
@@ -496,9 +592,13 @@ void loop() {
     }
     //enviar um pacote para o webserver com todos os dados medidos pelos outros esps e esse
   }
-*/
+
+	}
 
   handleSerialDebugCommands();
   if (wifi_connected) server.handleClient();
-  delay(10);
+  if (wifi_connected && mqtt.connected()) {
+    mqtt.loop();
+  }
+  //delay(10);
 }

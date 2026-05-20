@@ -46,6 +46,7 @@ typedef struct {
 	uint8_t mac[6];
 	unsigned long last_seen;
 	peer_state state;
+	bool master;
 } peer;
 
 //REDE DE BROADCAST, PARA HELLO
@@ -75,6 +76,9 @@ extern unsigned long last_hello;
 //TEMPO RANDOM PARA PROXIMO HELLO
 extern unsigned long next_hello;
 
+//TRUE SE O ESP ATUAL FOR MESTRE
+extern bool master;
+
 //RETORNA TRUE SE MAC A == MAC B, CASO CONTRARIO RETORNA FALSE
 bool mac_equals(uint8_t *mac_a, uint8_t *mac_b);
 
@@ -103,7 +107,7 @@ bool send_message(uint8_t *dest_mac, msg_type type);
 void onReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len);
 
 //RETORNA TRUE SE ESP FOR MESTRE, SE NAO, RETORNA FALSE
-bool is_master();
+bool define_master();
 
 void restartEspNow();
 
