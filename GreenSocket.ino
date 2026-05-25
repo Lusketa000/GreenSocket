@@ -467,45 +467,6 @@ void loop() {
 
     saveReading(timeinfo.tm_wday, slot, max_reading);
 
-    /*
-    if(master && wifi_connected && mqtt.connected()) {
-
-      int indice = (timeinfo.tm_wday * COLS) + slot;
-
-      String payload = "{";
-      payload += "\"row\":";
-      payload += String(timeinfo.tm_wday);
-      payload += ",";
-
-      payload += "\"col\":";
-      payload += String(slot);
-      payload += ",";
-
-      payload += "\"index\":";
-      payload += String(indice);
-      payload += ",";
-
-      payload += "\"value\":";
-      payload += String(max_reading);
-
-      payload += "}";
-
-      String topic =
-        String(ADAFRUIT_USER) +
-        "/feeds/energy";
-
-      mqtt.publish(
-        topic.c_str(),
-        payload.c_str()
-      );
-      Serial.println("[MQTT] Reading published");
-    }
-    else if (!master)
-    {
-      //envia ao esp
-    }
-    */
-
     max_reading = 0;
     Serial.println("[SAVE] max_reading reset to 0");
     saving_timer = millis();
@@ -563,17 +524,18 @@ void loop() {
 		Serial.print("Sou mestre?\n");
     master = define_master();
 		Serial.println(master ? "SIM\n\n" : "NAO\n\n");
-  if (!master) {
-    if (wifi_connected) {
-      Serial.println("Desconectando do WiFi");
-      esp_now_deinit();
-      WiFi.setAutoReconnect(false);
-      WiFi.disconnect(false, false);
-      wifi_connected = false;
-      delay(100);
-      restartEspNow();
+    if (!master) {
+      if (wifi_connected) {
+        Serial.println("Desconectando do WiFi");
+        esp_now_deinit();
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect(false, false);
+        wifi_connected = false;
+        delay(100);
+        restartEspNow();
+      }
+      //enviar para o mestre os dados medidos desse esp
     }
-    //enviar para o mestre os dados medidos desse esp
   }
   else {
     if (!wifi_connected) {
@@ -581,20 +543,32 @@ void loop() {
       WiFi.setAutoReconnect(true);
       WiFi.mode(WIFI_AP_STA);
       WiFi.begin();
-      unsigned long delay = millis();
-      while(WiFi.status() != WL_CONNECTED/* && millis() - delay < 10000*/) {
-        if (WiFi.status() == WL_CONNECTED) {
-          Serial.println("Conectado");
-          wifi_connected = true;
+      unsigned long nowtime = millis();
+      while(WiFi.status() != WL_CONNECTED && millis() - nowtime < WIFI_TIMEOUT_SECONDS * 1000) {
+        Serial.print(".");
+        delay(100);
         }
-      }
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Conectado");
+        wifi_connected = true;
+        mqtt.setServer("io.adafruit.com", 1883);
+        Serial.println("[MQTT] Connecting...");
+        if (mqtt.connect(
+          "ESP32C3_MASTER",
+          ADAFRUIT_USER,
+          ADAFRUIT_KEY)) {
+            Serial.println("[MQTT] Connected");
+        }
+        else {
+          Serial.print("[MQTT] Failed, rc=");
+          Serial.println(mqtt.state());
+        }
+      } 
       restartEspNow();
     }
     //enviar um pacote para o webserver com todos os dados medidos pelos outros esps e esse
   }
-
-	}
-
+  
   handleSerialDebugCommands();
   if (wifi_connected) server.handleClient();
   if (wifi_connected && mqtt.connected()) {
