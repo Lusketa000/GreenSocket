@@ -91,36 +91,78 @@ void handleModeAuto() {
 void handleRoot() {
   Serial.println("[HTTP] Serving /");
   bool relay_on = relayIsOn();
-  String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
-  html += "<link rel=\"icon\" href=\"data:,\">";
-  html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
-  html += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 20px; margin: 10px; cursor: pointer;}";
-  html += "</style></head>";
-  html += "<body><h1>ESP32 ScheduleTimer</h1>";
-  html += "<form action=\"/set\" method=\"GET\">";
-  html += "<p>Turn ON time:</p>";
-  html += "<input type=\"time\" name=\"on_time\" required>";
-  html += "<p>Turn OFF time:</p>";
-  html += "<input type=\"time\" name=\"off_time\" required>";
-  html += "<br><br><input type=\"submit\" class=\"button\" value=\"Set ScheduleTime\">";
-  html += "</form>";
-
-  html += "<p>Relay - State ";
-  html += relay_on ? "LIGADO" : "DESLIGADO";
-  html += "</p>";
+  String html = "<!DOCTYPE html>";
+  html += "<html lang=\"pt-br\">";
+  html += "<head>";
+  html += "<meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>Painel ESP32</title>";
+  html += "<style>";
+  html += "*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif;}";
+  html += "body{background:#e9e9e9;text-align:center;padding:20px;}";
+  html += ".container{max-width:1200px;margin:auto;}";
+  html += ".status-box{background:#7cc17b;border:4px solid #47a84b;border-radius:25px;padding:20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:25px;}";
+  html += ".status-text{flex:1;text-align:center;font-size:22px;}";
+  html += ".off{color:red;font-weight:bold;}";
+  html += ".on{color:#00ff00;font-weight:bold;}";
+  html += ".power-btn{text-decoration:none;}";
+  html += ".power-icon{font-size:70px;color:#1f2330;cursor:pointer;}";
+  html += ".cards{display:flex;gap:30px;justify-content:space-between;flex-wrap:wrap;justify-content:center;align-items:center;}";
+  html += ".card{flex:1;min-width:320px;background:#7cc17b;border:4px solid #47a84b;border-radius:40px;padding:30px;}";
+  html += ".card h2{margin-bottom:20px;font-size:22px;}";
+  html += "input[type=\"time\"]{width:200px;padding:10px;border-radius:10px;border:3px solid #47a84b;font-size:18px;margin-bottom:15px;}";
+  html += ".button{background:#47a84b;color:white;border:none;padding:15px 30px;border-radius:15px;font-size:18px;cursor:pointer;}";
+  html += ".switch-container{display:flex;justify-content:center;align-items:center;gap:20px;font-size:20px;}";
+  html += ".switch{position:relative;width:120px;height:55px;}";
+  html += ".switch input{opacity:0;width:0;height:0;}";
+  html += ".slider{position:absolute;cursor:pointer;inset:0;background:#ececec;border-radius:50px;transition:0.3s;}";
+  html += ".slider:before{content:\"\";position:absolute;height:40px;width:40px;left:8px;bottom:7px;background:#0f766e;border-radius:50%;transition:0.3s;}";
+  html += "input:checked+.slider:before{transform:translateX(62px);}";
+  html += "</style>";
+  html += "</head>";
+  html += "<body>";
+  html += "<div class=\"container\">";
+  html += "<div class=\"status-box\">";
+  html += "<div class=\"status-text\"><strong>ESTATUS:</strong> ";
   if (relay_on) {
-    html += "<p><a href=\"/relay/off\"><button class=\"button\">OFF</button></a></p>";
+    html += "<span class=\"on\">Ligado</span>";
   } else {
-    html += "<p><a href=\"/relay/on\"><button class=\"button button2\">ON</button></a></p>";
+    html += "<span class=\"off\">Desligado</span>";
   }
-  html += "<p>Mode: " + String(mode == MANUAL ? "MANUAL" : "AUTO") + "</p>";
-  if (mode == MANUAL) {
-    html += "<p><a href=\"/mode/auto\"><button class=\"button button2\">Switch to AUTO</button></a></p>";
-  } else {
-    html += "<p><a href=\"/mode/manual\"><button class=\"button button2\">Switch to MANUAL</button></a></p>";
-  }
-
-  html += "</body></html>";
+  html += "</div>";
+  html += "<a class=\"power-btn\" href=\"";
+  html += relay_on ? "/relay/off\">" : "/relay/on\">";
+  html += "<div class=\"power-icon\">&#x23FB;</div></a>";
+  html += "</div>";
+  html += "<div class=\"cards\">";
+  html += "<div class=\"card\">";
+  html += "<h2>Programar Horario</h2>";
+  html += "<form action=\"/set\" method=\"GET\">";
+  html += "<p>Ligar</p>";
+  html += "<input type=\"time\" name=\"on_time\" required>";
+  html += "<p>Desligar</p>";
+  html += "<input type=\"time\" name=\"off_time\" required>";
+  html += "<br><br>";
+  html += "<input type=\"submit\" class=\"button\" value=\"Salvar Horario\">";
+  html += "</form>";
+  html += "</div>";
+  html += "<div class=\"card\">";
+  html += "<h2>MODO</h2>";
+  html += "<div class=\"switch-container\">";
+  html += "<span>MANUAL</span>";
+  html += "<label class=\"switch\">";
+  html += "<input type=\"checkbox\"";
+  html += (mode == AUTO) ? " checked" : "";
+  html += " onchange=\"window.location.href=this.checked?'/mode/auto':'/mode/manual'\">";
+  html += "<span class=\"slider\"></span>";
+  html += "</label>";
+  html += "<span>AUTO</span>";
+  html += "</div>";
+  html += "</div>";
+  html += "</div>";
+  html += "</div>";
+  html += "</body>";
+  html += "</html>";
   server.send(200, "text/html", html);
 }
 
