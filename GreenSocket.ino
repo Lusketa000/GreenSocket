@@ -551,6 +551,7 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) {
         Serial.println("Conectado");
         wifi_connected = true;
+		/*
         mqtt.setServer("io.adafruit.com", 1883);
         Serial.println("[MQTT] Connecting...");
         if (mqtt.connect(
@@ -563,6 +564,7 @@ void loop() {
           Serial.print("[MQTT] Failed, rc=");
           Serial.println(mqtt.state());
         }
+		*/
       } 
       restartEspNow();
     }
