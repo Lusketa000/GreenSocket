@@ -14,6 +14,9 @@ peer_state this_state = SEARCHING;
 //MAC DESTE ESP
 uint8_t this_mac[6];
 
+//CANAL USADO PARA COMUNICACAO
+uint8_t wifi_channel = 2;
+
 //NUMERO DE MENSAGENS ENVIADAS
 uint32_t msg_counter = 0;
 
@@ -105,14 +108,14 @@ void  remove_peer(int id) {
 }
 
 //ADICIONA PEER NO ESP-NOW
-bool add_peer_espnow(uint8_t *mac, uint8_t channel) {
+bool add_peer_espnow(uint8_t *mac) {
 	//SE JA HOUVER CONEXAO, RETORNA SUCESSO
 	if (esp_now_is_peer_exist(mac)) return true;
 
 	//CONFIGURA PEER
 	esp_now_peer_info_t peerInfo = {};
 	memcpy(peerInfo.peer_addr, mac, 6);
-	peerInfo.channel = channel;
+	peerInfo.channel = wifi_channel;
 	peerInfo.encrypt = false;
 
 	//TENTA REGISTRAR PEER NO PROTOCOLO
