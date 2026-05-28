@@ -247,7 +247,7 @@ void setup() {
       Serial.println("ESP_NOW setup complete");
     }
 
-    add_peer_espnow((uint8_t *)BROADCAST);
+    add_peer_espnow((uint8_t *)BROADCAST, wifi_channel);
     esp_now_register_recv_cb(onReceive);
     memset(peer_list, 0, sizeof(peer_list));
 
