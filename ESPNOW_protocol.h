@@ -98,7 +98,7 @@ int update_peer(uint8_t *mac, int id);
 void  remove_peer(int id);
 
 //ADICIONA PEER NO ESP-NOW
-bool add_peer_espnow(uint8_t *mac, uint8_t channel);
+bool add_peer_espnow(uint8_t *mac);
 
 //ENVIA MENSAGEM DE UM TIPO ESPECIFICADO PARA O MAC INDICADO
 bool send_message(uint8_t *dest_mac, msg_type type);
