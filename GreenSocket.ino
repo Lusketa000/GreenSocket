@@ -186,7 +186,7 @@ void setup() {
   // WI-FI CONFIGURATION //
   String apName = generateAPName();
   wifi_connected = wifiSetupBegin(apName.c_str(), WIFI_TIMEOUT_SECONDS);
-  uint8_t wifi_channel = WiFi.channel();
+  wifi_channel = WiFi.channel();
   if (wifi_channel == 0) {
     wifi_channel = CHANNEL;  // seu canal fixo
   }
@@ -247,7 +247,7 @@ void setup() {
       Serial.println("ESP_NOW setup complete");
     }
 
-    add_peer_espnow((uint8_t *)BROADCAST, wifi_channel);
+    add_peer_espnow((uint8_t *)BROADCAST);
     esp_now_register_recv_cb(onReceive);
     memset(peer_list, 0, sizeof(peer_list));
 
