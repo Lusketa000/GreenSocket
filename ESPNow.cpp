@@ -327,9 +327,9 @@ void restartEspNow() {
 	int count = 0;
   // Readiciona todos os peers da lista
   for (int i = 0; i < MAX_PEERS; i++) {
-		print_mac(peer_list[i].mac);
-		Serial.println(peer_list[i].state);
-		Serial.println(peer_list[i].last_seen);
+		//print_mac(peer_list[i].mac);
+		//Serial.println(peer_list[i].state);
+		//Serial.println(peer_list[i].last_seen);
     if (peer_list[i].state == CONNECTED) {
       bool success = add_peer_espnow(peer_list[i].mac);
       
@@ -340,7 +340,7 @@ void restartEspNow() {
       } else {
         Serial.printf("[ESP-NOW] Falha ao readicionar peer %d\tmac:", i);
       }
-			print_mac(peer_list[i].mac);
+			//print_mac(peer_list[i].mac);
     }
   }
 	Serial.printf("[ESP-NOW] Total de peers readicionados: %d\n", count);

@@ -19,11 +19,13 @@
 #define NUM_BINS (MAX_VALUE / BIN_SIZE + 1)
 #define SENSOR_PIN 1
 #define WIFI_TIMEOUT_SECONDS 10
+#define WIFI_RECONNECT_COOLDOWN_MS 30000
 #define MINUTES_PER_DAY 1440
 #define SLOT_MINUTES 30
 #define MIN_VALID_YEAR 120
 
 bool wifi_connected = false;
+unsigned long last_wifi_off = 0;
 
 ACS712 ACS(SENSOR_PIN, 3.3, 4095, 123.33);
 
@@ -523,6 +525,7 @@ void loop() {
 
 		Serial.print("Sou mestre?\n");
     master = define_master();
+    Serial.println(master);
 		Serial.println(master ? "SIM\n\n" : "NAO\n\n");
     if (!master) {
       if (wifi_connected) {
@@ -531,42 +534,47 @@ void loop() {
         WiFi.setAutoReconnect(false);
         WiFi.disconnect(false, false);
         wifi_connected = false;
+        last_wifi_off = millis();
         delay(100);
         restartEspNow();
       }
       //enviar para o mestre os dados medidos desse esp
     }
   }
-  else {
+  else if (master) {
     if (!wifi_connected) {
-      Serial.println("Conectando ao WiFi");
-      WiFi.setAutoReconnect(true);
-      WiFi.mode(WIFI_AP_STA);
-      WiFi.begin();
-      unsigned long nowtime = millis();
-      while(WiFi.status() != WL_CONNECTED && millis() - nowtime < WIFI_TIMEOUT_SECONDS * 1000) {
-        Serial.print(".");
-        delay(100);
-        }
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Conectado");
-        wifi_connected = true;
-		/*
-        mqtt.setServer("io.adafruit.com", 1883);
-        Serial.println("[MQTT] Connecting...");
-        if (mqtt.connect(
-          "ESP32C3_MASTER",
-          ADAFRUIT_USER,
-          ADAFRUIT_KEY)) {
-            Serial.println("[MQTT] Connected");
-        }
-        else {
-          Serial.print("[MQTT] Failed, rc=");
-          Serial.println(mqtt.state());
-        }
-		*/
-      } 
-      restartEspNow();
+      if (millis() - last_wifi_off < WIFI_RECONNECT_COOLDOWN_MS) {
+        // Cooldown active; skip reconnect attempt.
+      } else {
+        Serial.println("Conectando ao WiFi");
+        WiFi.setAutoReconnect(true);
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.begin();
+        unsigned long nowtime = millis();
+        while(WiFi.status() != WL_CONNECTED && millis() - nowtime < WIFI_TIMEOUT_SECONDS * 1000) {
+          Serial.print(".");
+          delay(100);
+          }
+        if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("Conectado");
+          wifi_connected = true;
+  		/*
+          mqtt.setServer("io.adafruit.com", 1883);
+          Serial.println("[MQTT] Connecting...");
+          if (mqtt.connect(
+            "ESP32C3_MASTER",
+            ADAFRUIT_USER,
+            ADAFRUIT_KEY)) {
+              Serial.println("[MQTT] Connected");
+          }
+          else {
+            Serial.print("[MQTT] Failed, rc=");
+            Serial.println(mqtt.state());
+          }
+  		*/
+        } 
+        restartEspNow();
+      }
     }
     //enviar um pacote para o webserver com todos os dados medidos pelos outros esps e esse
   }
