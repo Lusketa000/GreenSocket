@@ -105,14 +105,14 @@ void  remove_peer(int id) {
 }
 
 //ADICIONA PEER NO ESP-NOW
-bool add_peer_espnow(uint8_t *mac) {
+bool add_peer_espnow(uint8_t *mac, uint8_t channel) {
 	//SE JA HOUVER CONEXAO, RETORNA SUCESSO
 	if (esp_now_is_peer_exist(mac)) return true;
 
 	//CONFIGURA PEER
 	esp_now_peer_info_t peerInfo = {};
 	memcpy(peerInfo.peer_addr, mac, 6);
-	peerInfo.channel = CHANNEL;
+	peerInfo.channel = channel;
 	peerInfo.encrypt = false;
 
 	//TENTA REGISTRAR PEER NO PROTOCOLO
