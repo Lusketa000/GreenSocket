@@ -4,6 +4,7 @@
 #include <time.h>
 #include "ACS712.h"
 #include "Memory.h"
+#include "MQTT.h"
 #include "Relay.h"
 #include "WifiSetup.h"
 
@@ -18,7 +19,6 @@
 #define WIFI_TIMEOUT_SECONDS 10
 #define MINUTES_PER_DAY 1440
 #define SLOT_MINUTES 30
-#define MIN_VALID_YEAR 120
 
 ACS712 ACS(SENSOR_PIN, 3.3, 4095, 123.33);
 
@@ -49,10 +49,6 @@ static bool hasManualSchedule() {
   return manual_on_timestamp >= 0 && manual_off_timestamp >= 0;
 }
 
-static bool isTimeValid(const tm &timeinfo) {
-  return timeinfo.tm_year >= MIN_VALID_YEAR;
-}
-
 static int minutesToSlot(int minutes) {
   if (minutes < 0) {
     return 0;
@@ -63,6 +59,7 @@ static int minutesToSlot(int minutes) {
   }
   return slot;
 }
+
 
 void handleRelayOn() {
   Serial.println("[HTTP] /relay/on requested");
@@ -217,6 +214,7 @@ void setup() {
   memoryBegin();
   relayBegin();
   wifiSetupBegin("ESP32C3-Setup", WIFI_TIMEOUT_SECONDS);
+  mqttSetup(WiFi.macAddress());
   server.on("/", handleRoot);
   server.on("/relay/on", handleRelayOn);
   server.on("/relay/off", handleRelayOff);
@@ -229,6 +227,8 @@ void setup() {
 }
 
 void loop() {
+  mqttLoop();
+
   // Measurement
   if (millis() - measurement_timer >= MEASUREMENT_INTERVAL) {
     Serial.println("[LOOP] Measurement interval reached");
