@@ -34,7 +34,7 @@ unsigned long time_check_timer = 0;
 unsigned long saving_timer = 0;
 unsigned long routine_timer = 0;
 WiFiClient espClient;
-PubSubClient mqtt(espClient);
+//PubSubClient mqtt(espClient);
 
 time_t manual_on_timestamp = -1;
 time_t manual_off_timestamp = -1;
@@ -184,6 +184,8 @@ void setup() {
   ACS.suppressNoise(true);
   memoryBegin();
   relayBegin();
+  pinMode(8, OUTPUT);
+  digitalWrite(8, LOW);
 
   // WI-FI CONFIGURATION //
   String apName = generateAPName();
@@ -220,7 +222,7 @@ void setup() {
   } else {
     Serial.printf("[ESP-NOW] Canal %d setado com sucesso\n", wifi_channel);
   }
-    
+    /*
     //mqtt setup
     if (wifi_connected) {
       mqtt.setServer("io.adafruit.com", 1883);
@@ -236,7 +238,7 @@ void setup() {
           Serial.println(mqtt.state());
         }
     }
-
+    */
     WiFi.macAddress(this_mac);
     Serial.print("[BOOT] My MAC is: ");
     print_mac(this_mac);
@@ -267,7 +269,7 @@ void loop() {
     Serial.print(" max_reading=");
     Serial.println(max_reading);
     measurement_timer = millis();
-
+    /*
      if(master && wifi_connected && mqtt.connected()) {
 
       //int indice = (timeinfo.tm_wday * COLS) + slot;
@@ -304,7 +306,7 @@ void loop() {
     //{
       //envia ao esp
     //}
-
+    */
   }
 
   // Routine check
@@ -501,6 +503,9 @@ void loop() {
     if (!enviado) {
         Serial.println("Nenhum peer CONNECTED para enviar ALIVE");
     }
+    else {
+      digitalWrite(8, HIGH);
+    }
   }
 
   // Timeout peers
@@ -581,8 +586,10 @@ void loop() {
   
   handleSerialDebugCommands();
   if (wifi_connected) server.handleClient();
+  /*
   if (wifi_connected && mqtt.connected()) {
     mqtt.loop();
   }
+  */
   //delay(10);
 }

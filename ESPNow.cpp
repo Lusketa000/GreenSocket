@@ -278,6 +278,7 @@ void onReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 			}
 		}
 		else if (msg.type == MSG_ALIVE) {
+			digitalWrite(8, LOW);
 			update_peer((uint8_t *)mac, id);
 		}
 	}
